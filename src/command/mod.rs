@@ -10,13 +10,13 @@ mod encoded_method;
 mod header;
 
 pub use encoded_method::*;
+pub use header::*;
 
 use std::io::{Read, Write};
 use std::mem::size_of;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::command::header::LocoHeader;
 use crate::Error;
 
 
@@ -49,8 +49,8 @@ impl LocoCommand {
 
     pub fn deserialize_from<R: Read>(mut r: R) -> Result<Self, Error> {
         let header: LocoHeader = bincode::deserialize_from(&mut r)?;
-        let len: u32 = r.read_u32::<LittleEndian>()?;
-        let mut data = Vec::with_capacity(len as usize);
+        let data_size = r.read_u32::<LittleEndian>()? as usize;
+        let mut data = vec![0; data_size];
         r.read_exact(&mut data)?;
         Ok(Self {
             header,
@@ -63,8 +63,8 @@ impl LocoCommand {
         r.read_exact(&mut header_and_size).await?;
         let mut header_and_size_reader = &header_and_size as &[u8];
         let header = bincode::deserialize_from(&mut header_and_size_reader)?;
-        let len = header_and_size_reader.read_u32::<LittleEndian>()?;
-        let mut data = Vec::with_capacity(len as usize);
+        let data_size = header_and_size_reader.read_u32::<LittleEndian>()? as usize;
+        let mut data = vec![0; data_size];
         r.read_exact(&mut data).await?;
         Ok(Self {
             header,

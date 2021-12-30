@@ -15,12 +15,12 @@ pub fn command_builder() {
             id: 0,
             data_type: 0,
             status: 0,
-            method: "TEST".into()
+            method: "TEST".parse().unwrap()
         },
         data: vec![0_u8; 4],
     };
 
-    let command = builder.build(0, vec![0_u8; 4]);
+    let command = builder.build(0, vec![0_u8; 4]).unwrap();
 
     assert_eq!(test_command, command)
 }

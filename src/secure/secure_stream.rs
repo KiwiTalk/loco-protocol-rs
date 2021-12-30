@@ -56,7 +56,7 @@ impl<S: Read> SecureStream<S> {
 		let data_size = self.inner.read_u32::<LittleEndian>()? as usize;
 		let mut iv = [0; SECURE_HEADER_SIZE];
 		self.inner.read_exact(&mut iv)?;
-		let mut data = Vec::with_capacity(data_size);
+		let mut data = vec![0; data_size];
 		self.inner.read_exact(&mut data)?;
 		self.read_buf = Cursor::new(self.crypto.decrypt_aes(&data, &iv)?);
 		Ok(())
@@ -134,7 +134,7 @@ impl<S: AsyncRead + Unpin> SecureStream<S> {
 		let data_size = (&data_size as &[u8]).read_u32::<LittleEndian>()? as usize;
 		let mut iv = [0; SECURE_HEADER_SIZE];
 		self.inner.read_exact(&mut iv).await?;
-		let mut read = Vec::with_capacity(data_size);
+		let mut read = vec![0; data_size];
 		self.inner.read_exact(&mut read).await?;
 		self.read_buf = Cursor::new(self.crypto.decrypt_aes(&read, &iv)?);
 		Ok(())

@@ -6,7 +6,7 @@
 
 use std::io::Cursor;
 
-use loco_protocol::command::{loco_command_codec::CommandCodec, LocoCommand, LocoHeader, ReadLocoCommand, WriteLocoCommand};
+use loco_protocol::command::{LocoCommand, LocoHeader, ReadLocoCommand, WriteLocoCommand};
 
 #[test]
 pub fn codec_read_write() {
@@ -14,10 +14,10 @@ pub fn codec_read_write() {
 
     let test_command1 = LocoCommand {
         header: LocoHeader {
-            id: 0,
-            data_type: 0,
-            status: 0,
-            method: "TEST1".into(),
+            id: 1,
+            data_type: 2,
+            status: 3,
+            method: "TEST1".parse().unwrap(),
         },
         data: vec![0_u8; 4],
     };
@@ -27,7 +27,7 @@ pub fn codec_read_write() {
             id: 0,
             data_type: 0,
             status: 0,
-            method: "TEST2".into(),
+            method: "TEST2".parse().unwrap(),
         },
         data: vec![8_u8; 4],
     };
