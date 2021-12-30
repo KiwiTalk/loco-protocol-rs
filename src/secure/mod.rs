@@ -7,8 +7,10 @@
 use serde::{Deserialize, Serialize};
 
 pub mod crypto;
-pub mod session;
-pub mod stream;
+
+mod secure_stream;
+
+pub use secure_stream::*;
 
 pub const SECURE_HEAD_SIZE: usize = SECURE_HEADER_SIZE + 4;
 pub const SECURE_HEADER_SIZE: usize = 16;

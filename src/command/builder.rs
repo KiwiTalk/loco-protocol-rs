@@ -4,7 +4,7 @@
  * Copyright (c) storycraft. Licensed under the MIT Licence.
  */
 
-use super::{Command, Header};
+use super::{LocoCommand, LocoHeader};
 
 /// Command build helper
 #[derive(Debug)]
@@ -38,14 +38,14 @@ impl<'a> CommandBuilder<'a> {
         self
     }
 
-    pub fn build(self, data_type: i8, data: Vec<u8>) -> Command {
-        let header = Header {
+    pub fn build(self, data_type: i8, data: Vec<u8>) -> std::io::Result<LocoCommand> {
+        let header = LocoHeader {
             id: self.id,
             status: self.status,
-            method: Header::to_method(self.method),
+            method: self.method.parse()?,
             data_type,
         };
 
-        Command { header, data }
+        Ok(LocoCommand { header, data })
     }
 }

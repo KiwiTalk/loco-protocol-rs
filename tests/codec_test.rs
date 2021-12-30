@@ -6,47 +6,44 @@
 
 use std::io::Cursor;
 
-use loco_protocol::command::{codec::CommandCodec, Command, Header};
+use loco_protocol::command::{loco_command_codec::CommandCodec, LocoCommand, LocoHeader, ReadLocoCommand, WriteLocoCommand};
 
 #[test]
 pub fn codec_read_write() {
     let mut local = Vec::<u8>::new();
 
-    let test_command1 = Command {
-        header: Header {
+    let test_command1 = LocoCommand {
+        header: LocoHeader {
             id: 0,
             data_type: 0,
             status: 0,
-            method: Header::to_method(&"TEST1"),
+            method: "TEST1".into(),
         },
         data: vec![0_u8; 4],
     };
 
-    let test_command2 = Command {
-        header: Header {
+    let test_command2 = LocoCommand {
+        header: LocoHeader {
             id: 0,
             data_type: 0,
             status: 0,
-            method: Header::to_method(&"TEST2"),
+            method: "TEST2".into(),
         },
         data: vec![8_u8; 4],
     };
 
-    let mut write_codec = CommandCodec::new(&mut local);
 
-    write_codec
-        .write(&test_command1)
+    local.write_loco_command(&test_command1)
         .expect("Command write must not fail");
 
-    write_codec
-        .write(&test_command2)
+    local.write_loco_command(&test_command2)
         .expect("Command write must not fail");
 
-    let mut read_codec = CommandCodec::new(Cursor::new(&mut local));
+    let mut read_codec = Cursor::new(&mut local);
 
-    let (_, command1) = read_codec.read().expect("Command read must not fail");
+    let command1 = read_codec.read_loco_command().expect("Command read must not fail");
     assert_eq!(command1, test_command1);
 
-    let (_, command2) = read_codec.read().expect("Command read must not fail");
+    let command2 = read_codec.read_loco_command().expect("Command read must not fail");
     assert_eq!(command2, test_command2);
 }

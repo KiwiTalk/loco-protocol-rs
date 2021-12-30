@@ -4,12 +4,16 @@
  * Copyright (c) storycraft. Licensed under the MIT Licence.
  */
 
-use std::{cell::RefCell, error::Error, fmt::Display};
+use std::{cell::RefCell, fmt::Display};
+use std::io::Cursor;
+use byteorder::{LittleEndian, ReadBytesExt};
 
 use libaes::Cipher;
 use rand::{prelude::ThreadRng, rngs, RngCore};
 use rsa::{PaddingScheme, PublicKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
+use crate::secure::{SECURE_HANDSHAKE_HEAD_SIZE, SecureHandshake, SecureHandshakeHeader};
+use crate::Error;
 
 #[repr(u32)]
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
@@ -34,10 +38,9 @@ impl Display for CryptoError {
     }
 }
 
-impl Error for CryptoError {}
 
 /// AES Crypto implementation using aes
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CryptoStore {
     aes_key: [u8; 16],
     rng: RefCell<ThreadRng>,
@@ -92,3 +95,37 @@ impl CryptoStore {
         self.rng.borrow_mut().fill_bytes(data);
     }
 }
+
+
+pub(super) fn to_handshake_packet(
+    crypto: &CryptoStore,
+    key: &RsaPublicKey,
+) -> Result<Vec<u8>, Error> {
+    let encrypted_key = crypto.encrypt_key(key)?;
+
+    let handshake_header = SecureHandshakeHeader {
+        key_encrypt_type: KeyEncryptType::RsaOaepSha1Mgf1Sha1 as u32,
+        encrypt_type: EncryptType::AesCfb128 as u32,
+    };
+    let header_data = bincode::serialize(&handshake_header)?;
+
+    Ok([
+        (encrypted_key.len() as u32).to_le_bytes().into(),
+        header_data,
+        encrypted_key,
+    ]
+        .concat())
+}
+
+/// Decode key_size and [SecureHandshakeHeader] into empty [SecureHandshake].
+pub(super) fn decode_handshake_head(buf: &[u8]) -> Result<SecureHandshake, Error> {
+    let key_size = Cursor::new(&buf[..4]).read_u32::<LittleEndian>()?;
+    let header =
+        bincode::deserialize::<SecureHandshakeHeader>(&buf[4..SECURE_HANDSHAKE_HEAD_SIZE])?;
+
+    Ok(SecureHandshake {
+        header,
+        encrypted_key: vec![0_u8; key_size as usize],
+    })
+}
+
