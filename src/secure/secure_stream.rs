@@ -101,7 +101,7 @@ impl<S: Write> SecureStream<S> {
 
 	pub fn write_handshake(&mut self, key: &RsaPublicKey) -> Result<(), Error> {
 		let handshake = to_handshake_packet(&self.crypto, key)?;
-		Ok(self.write_all(&handshake)?)
+		Ok(self.inner.write_all(&handshake)?)
 	}
 }
 

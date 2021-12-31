@@ -5,14 +5,13 @@
  */
 
 use std::{cell::RefCell, fmt::Display};
-use std::io::Cursor;
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use libaes::Cipher;
 use rand::{prelude::ThreadRng, rngs, RngCore};
 use rsa::{PaddingScheme, PublicKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
-use crate::secure::{SECURE_HANDSHAKE_HEAD_SIZE, SecureHandshake, SecureHandshakeHeader};
+use crate::secure::{SecureHandshake, SecureHandshakeHeader};
 use crate::Error;
 
 #[repr(u32)]
@@ -118,10 +117,10 @@ pub(super) fn to_handshake_packet(
 }
 
 /// Decode key_size and [SecureHandshakeHeader] into empty [SecureHandshake].
-pub(super) fn decode_handshake_head(buf: &[u8]) -> Result<SecureHandshake, Error> {
-    let key_size = Cursor::new(&buf[..4]).read_u32::<LittleEndian>()?;
-    let header =
-        bincode::deserialize::<SecureHandshakeHeader>(&buf[4..SECURE_HANDSHAKE_HEAD_SIZE])?;
+pub(super) fn decode_handshake_head(mut buf: &[u8]) -> Result<SecureHandshake, Error> {
+    let key_size = buf.read_u32::<LittleEndian>()?;
+    let header: SecureHandshakeHeader =
+        bincode::deserialize_from(&mut buf)?;
 
     Ok(SecureHandshake {
         header,
