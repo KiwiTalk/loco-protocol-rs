@@ -7,47 +7,60 @@
 
 #![doc = include_str!("../specification.md")]
 
-pub mod command;
-
 pub mod secure;
 
-use std::fmt::Display;
+mod loco_header;
+mod loco_instance;
+mod encoded_method;
+
+use std::fmt::{Display, Formatter};
+pub use loco_header::*;
+pub use loco_instance::*;
+pub use encoded_method::*;
+
 use std::io;
+use std::sync::Arc;
 use crate::secure::crypto::CryptoError;
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
-	Bincode(bincode::Error),
-	Io(io::Error),
-	Crypto(CryptoError),
+	#[error("{0}")]
+	Bincode(#[from] bincode::Error),
+	#[error("{0}")]
+	Io(#[from] io::Error),
+	#[error("{0}")]
+	Crypto(#[from] CryptoError),
+	#[error("{0}")]
+	BsonDe(#[from] bson::de::Error),
+	#[error("{0}")]
+	BsonSer(#[from] bson::ser::Error),
+	#[error("Invalid Key")]
 	InvalidKey,
+	#[error("failed to send channel")]
+	TokioSendFail,
+	#[error("{0}")]
+	TokioRecvFail(#[from] tokio::sync::oneshot::error::RecvError),
 }
 
-impl From<bincode::Error> for Error {
-	fn from(err: bincode::Error) -> Self {
-		Self::Bincode(err)
-	}
+#[derive(Clone, Debug)]
+pub struct ArcError{
+	pub inner: Arc<Error>
 }
 
-impl From<io::Error> for Error {
-	fn from(err: io::Error) -> Self {
-		Self::Io(err)
-	}
-}
-
-impl From<CryptoError> for Error {
-	fn from(err: CryptoError) -> Self {
-		Self::Crypto(err)
-	}
-}
-
-impl Display for Error {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Error::Bincode(err) => err.fmt(f),
-			Error::Io(err) => err.fmt(f),
-			Error::Crypto(err) => err.fmt(f),
-			Error::InvalidKey => write!(f, "Invalid key"),
+impl<T: Into<Error>> From<T> for ArcError {
+	fn from(e: T) -> Self {
+		Self {
+			inner: Arc::new(e.into())
 		}
 	}
+}
+
+impl Display for ArcError {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		Display::fmt(&*self.inner, f)
+	}
+}
+
+impl std::error::Error for ArcError {
 }

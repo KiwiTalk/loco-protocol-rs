@@ -4,37 +4,32 @@
  * Copyright (c) storycraft. Licensed under the MIT Licence.
  */
 
-use std::{cell::RefCell, fmt::Display};
+use std::cell::RefCell;
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use libaes::Cipher;
 use rand::{prelude::ThreadRng, rngs, RngCore};
 use rsa::{PaddingScheme, PublicKey, RsaPublicKey};
-use serde::{Deserialize, Serialize};
 use crate::secure::{SecureHandshake, SecureHandshakeHeader};
 use crate::Error;
+use serde_repr::*;
 
 #[repr(u32)]
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize_repr, Deserialize_repr, Copy, Clone)]
 pub enum EncryptType {
     AesCfb128 = 2,
 }
 
 #[repr(u32)]
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize_repr, Deserialize_repr, Copy, Clone)]
 pub enum KeyEncryptType {
     RsaOaepSha1Mgf1Sha1 = 12,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CryptoError {
+    #[error("Corrupted Data")]
     CorruptedData,
-}
-
-impl Display for CryptoError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Corrupted data")
-    }
 }
 
 
@@ -103,8 +98,8 @@ pub(super) fn to_handshake_packet(
     let encrypted_key = crypto.encrypt_key(key)?;
 
     let handshake_header = SecureHandshakeHeader {
-        key_encrypt_type: KeyEncryptType::RsaOaepSha1Mgf1Sha1 as u32,
-        encrypt_type: EncryptType::AesCfb128 as u32,
+        key_encrypt_type: KeyEncryptType::RsaOaepSha1Mgf1Sha1,
+        encrypt_type: EncryptType::AesCfb128,
     };
     let header_data = bincode::serialize(&handshake_header)?;
 

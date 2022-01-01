@@ -11,6 +11,7 @@ pub mod crypto;
 mod secure_stream;
 
 pub use secure_stream::*;
+use crate::secure::crypto::{EncryptType, KeyEncryptType};
 
 pub const SECURE_HEAD_SIZE: usize = SECURE_HEADER_SIZE + 4;
 pub const SECURE_HEADER_SIZE: usize = 16;
@@ -31,8 +32,8 @@ pub const SECURE_HANDSHAKE_HEADER_SIZE: usize = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecureHandshakeHeader {
-    pub key_encrypt_type: u32,
-    pub encrypt_type: u32,
+    pub key_encrypt_type: KeyEncryptType,
+    pub encrypt_type: EncryptType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
