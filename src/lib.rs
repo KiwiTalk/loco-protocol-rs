@@ -13,13 +13,12 @@ mod loco_header;
 mod loco_instance;
 mod encoded_method;
 
-use std::fmt::{Display, Formatter};
 pub use loco_header::*;
 pub use loco_instance::*;
 pub use encoded_method::*;
 
 use std::io;
-use std::sync::Arc;
+use std::string::FromUtf8Error;
 use crate::secure::crypto::CryptoError;
 use thiserror::Error;
 
@@ -41,8 +40,13 @@ pub enum Error {
 	TokioSendFail,
 	#[error("{0}")]
 	TokioRecvFail(#[from] tokio::sync::oneshot::error::RecvError),
+	#[error("packet receive timed out")]
+	LocoTimeout,
+	#[error("error while deserializing EncodedMethod: {0}")]
+	EncodedMethodDeserializeError(#[from] FromUtf8Error)
 }
 
+/*
 #[derive(Clone, Debug)]
 pub struct ArcError{
 	pub inner: Arc<Error>
@@ -64,3 +68,4 @@ impl Display for ArcError {
 
 impl std::error::Error for ArcError {
 }
+*/

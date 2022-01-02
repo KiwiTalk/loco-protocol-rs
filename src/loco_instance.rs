@@ -9,26 +9,29 @@ use serde::Serialize;
 use tokio::sync::{oneshot, broadcast};
 use tokio::task::JoinHandle;
 use std::time::Instant;
-use crate::{ArcError, BodyType, Error, HEADER_SIZE, LocoHeader};
+use crate::{BodyType, EncodedMethod, Error, HEADER_SIZE, LocoHeader};
+use log::{error, warn, debug, info, trace};
 
-const TIMEOUT: Duration = Duration::from_secs(1);
+const TIMEOUT: Duration = Duration::from_secs(20);
 
 struct LocoInstanceMutex<T> {
-	stream: T,
+	write: T,
 	last_packet_id: i32,
-	oneshot: HashMap<i32, (Instant, oneshot::Sender<Result<Document, Error>>)>
+	oneshot: HashMap<i32, (Instant, EncodedMethod, oneshot::Sender<Result<Document, Error>>)>,
 }
 
-struct LocoInstanceArc<T> {
-	mutex: Mutex<LocoInstanceMutex<T>>,
-	broadcast_bson: broadcast::Sender<Result<Arc<Document>, ArcError>>
+struct LocoInstanceArc<R, W> {
+	mutex: Mutex<LocoInstanceMutex<W>>,
+	read: Mutex<R>,
+	broadcast_bson: broadcast::Sender<Arc<Result<Document, Error>>>,
+	stop: Mutex<bool>
 }
 
-pub struct LocoInstance<T> {
-	arc: Arc<LocoInstanceArc<T>>,
+pub struct LocoInstance<R, W> {
+	arc: Arc<LocoInstanceArc<R, W>>,
 }
 
-impl<T> Clone for LocoInstance<T> {
+impl<R, W> Clone for LocoInstance<R, W> {
 	fn clone(&self) -> Self {
 		Self {
 			arc: self.arc.clone()
@@ -36,16 +39,18 @@ impl<T> Clone for LocoInstance<T> {
 	}
 }
 
-impl<T: AsyncRead + AsyncWrite + Unpin + Sync + Send + 'static> LocoInstance<T> {
-	pub fn init(stream: T) -> (Self, JoinHandle<Result<(), Error>>) {
+impl<R: AsyncRead + Unpin + Sync + Send + 'static, W: AsyncWrite + Unpin + Sync + Send + 'static> LocoInstance<R, W> {
+	pub fn init(read: R, write: W) -> (Self, JoinHandle<()>) {
 		let instance = Self {
 			arc: Arc::new(LocoInstanceArc {
 				mutex: Mutex::new(LocoInstanceMutex {
-					stream,
+					write,
 					last_packet_id: 0,
-					oneshot: HashMap::default()
+					oneshot: HashMap::default(),
 				}),
-				broadcast_bson: broadcast::channel(100).0
+				read: Mutex::new(read),
+				broadcast_bson: broadcast::channel(100).0,
+				stop: Mutex::new(false)
 			})
 		};
 		let instance_clone = instance.clone();
@@ -55,77 +60,108 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Sync + Send + 'static> LocoInstance<T> 
 		(instance, handle)
 	}
 
-	async fn run(&self) -> Result<(), Error> {
+	async fn run(&self) {
+		info!("LocoInstance started");
 		let mut to_remove = vec![];
-		loop {
-			let mut mutex = self.arc.mutex.lock().await;
-			let mut header_reader = [0; HEADER_SIZE];
-			mutex.stream.read_exact(&mut header_reader).await?;
-			let loco_header: LocoHeader = bincode::deserialize_from(&header_reader as &[u8])?;
-			if (loco_header.id as u32) >= (mutex.last_packet_id as u32) {
-				mutex.last_packet_id = loco_header.id;
-			}
-			let mut body_raw = vec![0; loco_header.body_size as usize];
-			mutex.stream.read_exact(&mut body_raw).await?;
-			match loco_header.body_type {
-				BodyType::Bson => {
-					let result: Result<Document, Error> = {
-						Ok(bson::Document::from_reader(&*body_raw)?)
-					};
-					if let Some((_, sender)) = mutex.oneshot.remove(&loco_header.id) {
-						sender.send(result).map_err(|_| Error::TokioSendFail)?;
-					} else {
-						self.arc.broadcast_bson.send(result.map(Arc::new).map_err(Into::into)).map_err(|_| Error::TokioSendFail)?;
+		while !*self.arc.stop.lock().await {
+			let result: Result<_, Error> = async {
+				let mut read = self.arc.read.lock().await;
+				let mut header_reader = [0; HEADER_SIZE];
+				read.read_exact(&mut header_reader).await?;
+				let loco_header: LocoHeader = bincode::deserialize_from(&header_reader as &[u8])?;
+				trace!("packet id: {}, method: {}", loco_header.id, TryInto::<String>::try_into(loco_header.method)?);
+				let mut body_raw = vec![0; loco_header.body_size as usize];
+				read.read_exact(&mut body_raw).await?;
+				let mut mutex = self.arc.mutex.lock().await;
+				if (loco_header.id as u32) >= (mutex.last_packet_id as u32) {
+					mutex.last_packet_id = loco_header.id;
+				}
+				match loco_header.body_type {
+					BodyType::Bson => {
+						let result: Result<Document, Error> = {
+							Ok(bson::Document::from_reader(&*body_raw)?)
+						};
+						if let Some((_, method, sender)) = mutex.oneshot.remove(&loco_header.id) {
+							let method_expected: String = method.try_into()?;
+							let method_found: String = loco_header.method.try_into()?;
+							if method_expected != method_found {
+								warn!("method expected: {}, found: {}", method_expected, method_found);
+							}
+							sender.send(result).map_err(|_| Error::TokioSendFail)?;
+						} else {
+							self.arc.broadcast_bson.send(Arc::new(result)).map_err(|_| Error::TokioSendFail)?;
+						}
+					}
+					BodyType::Unknown => {}
+				}
+
+
+				let now = Instant::now();
+				to_remove.clear();
+				for (key, (sent_time, _, _)) in mutex.oneshot.iter() {
+					if now.duration_since(sent_time.clone()) > TIMEOUT {
+						to_remove.push(*key);
 					}
 				}
-				BodyType::Unknown => {}
-			}
 
-
-			let now = Instant::now();
-			to_remove.clear();
-			for (key, (sent_time, _)) in mutex.oneshot.iter() {
-				if now.duration_since(sent_time.clone()) > TIMEOUT {
-					to_remove.push(*key);
+				for x in &to_remove {
+					if let Some((_, method, sender)) = mutex.oneshot.remove(x) {
+						debug!("packet id: {}, method: {}, dropped due to timeout", x, TryInto::<String>::try_into(method)?);
+						sender.send(Err(Error::LocoTimeout)).map_err(|_| Error::TokioSendFail)?;
+					}
 				}
-			}
-
-			//todo timeout drop debug log
-			for x in &to_remove {
-				mutex.oneshot.remove(x);
+				Ok(())
+			}.await;
+			if let Err(e) = result {
+				error!("error on LocoInstance loop: {:#?}", e);
 			}
 		}
+		info!("LocoInstance stopped");
 	}
 
-	pub fn subscribe_bson(&self) -> broadcast::Receiver<Result<Arc<Document>, ArcError>> {
+	pub async fn stop(&self) {
+		info!("LocoInstance stopping...");
+		*self.arc.stop.lock().await = true
+	}
+
+	pub fn subscribe_bson(&self) -> broadcast::Receiver<Arc<Result<Document, Error>>> {
 		self.arc.broadcast_bson.subscribe()
 	}
 
-	pub async fn request_and_receive_bson<REQ: Serialize, RES: DeserializeOwned>(&self, method: &str, request: &REQ) -> Result<RES, ArcError> {
-		let receiver = {
+	pub async fn request_and_receive_bson<REQ: Serialize, RES: DeserializeOwned>(&self, method: &str, request: &REQ) -> Result<RES, Error> {
+		let (receiver, packet_id) = {
 			let mut mutex = self.arc.mutex.lock().await;
 			mutex.last_packet_id += 1;
 			let (sender, receiver) = oneshot::channel();
 			let id = mutex.last_packet_id;
-			mutex.oneshot.insert(id, (Instant::now(), sender));
-			receiver
+			mutex.oneshot.insert(id, (Instant::now(), method.parse()?, sender));
+			(receiver, mutex.last_packet_id)
 		};
-		self.request_bson(method, request).await?;
+		self.request_bson_with_pid(method, packet_id, request).await?;
 		Ok(bson::from_document(receiver.await??)?)
 	}
 
 	pub async fn request_bson<REQ: Serialize>(&self, method: &str, request: &REQ) -> Result<(), Error> {
+		let packet_id = {
+			let mut mutex = self.arc.mutex.lock().await;
+			mutex.last_packet_id += 1;
+			mutex.last_packet_id
+		};
+		self.request_bson_with_pid(method, packet_id, request).await
+	}
+
+	async fn request_bson_with_pid<REQ: Serialize>(&self, method: &str, packet_id: i32, request: &REQ) -> Result<(), Error> {
 		let mut mutex = self.arc.mutex.lock().await;
 		let body_raw = bson::to_vec(&request)?;
 		let header = LocoHeader {
-			id: mutex.last_packet_id,
+			id: packet_id,
 			status: 0,
 			method: method.parse()?,
 			body_type: BodyType::Bson,
 			body_size: body_raw.len() as _
 		};
-		mutex.stream.write_all(&bincode::serialize(&header)?).await?;
-		mutex.stream.write_all(&body_raw).await?;
+		mutex.write.write_all(&bincode::serialize(&header)?).await?;
+		mutex.write.write_all(&body_raw).await?;
 		Ok(())
 	}
 }
