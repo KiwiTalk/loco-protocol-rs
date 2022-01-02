@@ -23,7 +23,7 @@ struct LocoInstanceMutex<T> {
 struct LocoInstanceArc<R, W> {
 	mutex: Mutex<LocoInstanceMutex<W>>,
 	read: Mutex<R>,
-	broadcast_bson: broadcast::Sender<Arc<Result<(LocoHeader, Document), Error>>>,
+	broadcast_bson: broadcast::Sender<Arc<Result<(String, Document), Error>>>,
 	stop: Mutex<bool>
 }
 
@@ -39,7 +39,10 @@ impl<R, W> Clone for LocoInstance<R, W> {
 	}
 }
 
-impl<R: AsyncRead + Unpin + Sync + Send + 'static, W: AsyncWrite + Unpin + Sync + Send + 'static> LocoInstance<R, W> {
+pub trait LocoInstanceRead = AsyncRead + Unpin + Sync + Send + 'static;
+pub trait LocoInstanceWrite = AsyncWrite + Unpin + Sync + Send + 'static;
+
+impl<R: LocoInstanceRead, W: LocoInstanceWrite> LocoInstance<R, W> {
 	pub fn init(read: R, write: W) -> (Self, JoinHandle<()>) {
 		let instance = Self {
 			arc: Arc::new(LocoInstanceArc {
@@ -89,7 +92,8 @@ impl<R: AsyncRead + Unpin + Sync + Send + 'static, W: AsyncWrite + Unpin + Sync 
 							}
 							sender.send(result).map_err(|_| Error::TokioSendFail)?;
 						} else {
-							self.arc.broadcast_bson.send(Arc::new(result.map(|x| (loco_header, x)))).map_err(|_| Error::TokioSendFail)?;
+							let method: String = loco_header.method.try_into()?;
+							self.arc.broadcast_bson.send(Arc::new(result.map(|x| (method, x)))).map_err(|_| Error::TokioSendFail)?;
 						}
 					}
 					BodyType::Unknown => {}
@@ -124,11 +128,11 @@ impl<R: AsyncRead + Unpin + Sync + Send + 'static, W: AsyncWrite + Unpin + Sync 
 		*self.arc.stop.lock().await = true
 	}
 
-	pub fn subscribe_bson(&self) -> broadcast::Receiver<Arc<Result<(LocoHeader, Document), Error>>> {
+	pub fn subscribe_bson(&self) -> broadcast::Receiver<Arc<Result<(String, Document), Error>>> {
 		self.arc.broadcast_bson.subscribe()
 	}
 
-	pub async fn request_and_receive_bson<REQ: Serialize, RES: DeserializeOwned>(&self, method: &str, request: &REQ) -> Result<RES, Error> {
+	pub async fn send_and_receive_bson<REQ: Serialize, RES: DeserializeOwned>(&self, method: &str, request: &REQ) -> Result<RES, Error> {
 		let (receiver, packet_id) = {
 			let mut mutex = self.arc.mutex.lock().await;
 			mutex.last_packet_id += 1;
@@ -137,20 +141,20 @@ impl<R: AsyncRead + Unpin + Sync + Send + 'static, W: AsyncWrite + Unpin + Sync 
 			mutex.oneshot.insert(id, (Instant::now(), method.parse()?, sender));
 			(receiver, mutex.last_packet_id)
 		};
-		self.request_bson_with_pid(method, packet_id, request).await?;
+		self.send_bson_with_pid(method, packet_id, request).await?;
 		Ok(bson::from_document(receiver.await??)?)
 	}
 
-	pub async fn request_bson<REQ: Serialize>(&self, method: &str, request: &REQ) -> Result<(), Error> {
+	pub async fn send_bson<REQ: Serialize>(&self, method: &str, request: &REQ) -> Result<(), Error> {
 		let packet_id = {
 			let mut mutex = self.arc.mutex.lock().await;
 			mutex.last_packet_id += 1;
 			mutex.last_packet_id
 		};
-		self.request_bson_with_pid(method, packet_id, request).await
+		self.send_bson_with_pid(method, packet_id, request).await
 	}
 
-	async fn request_bson_with_pid<REQ: Serialize>(&self, method: &str, packet_id: i32, request: &REQ) -> Result<(), Error> {
+	async fn send_bson_with_pid<REQ: Serialize>(&self, method: &str, packet_id: i32, request: &REQ) -> Result<(), Error> {
 		let mut mutex = self.arc.mutex.lock().await;
 		let body_raw = bson::to_vec(&request)?;
 		let header = LocoHeader {
@@ -162,7 +166,7 @@ impl<R: AsyncRead + Unpin + Sync + Send + 'static, W: AsyncWrite + Unpin + Sync 
 		};
 		mutex.write.write_all(&bincode::serialize(&header)?).await?;
 		mutex.write.write_all(&body_raw).await?;
-		mutex.write.flush();
+		mutex.write.flush().await?;
 		Ok(())
 	}
 }

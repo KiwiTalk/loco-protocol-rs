@@ -1,4 +1,4 @@
-#![feature(buf_read_has_data_left)]
+#![feature(buf_read_has_data_left, trait_alias)]
 /*
  * Created on Sat Nov 28 2020
  *
