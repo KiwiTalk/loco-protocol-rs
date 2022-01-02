@@ -7,7 +7,7 @@
 use rand::rngs::OsRng;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use loco_protocol::secure::crypto::CryptoStore;
-use loco_protocol::secure::SecureStream;
+use loco_protocol::secure::SecureStreamRead;
 
 #[test]
 pub fn handshake() {
@@ -17,9 +17,9 @@ pub fn handshake() {
 
     let mut local = Vec::<u8>::new();
 
-    let mut client_session = SecureStream::new(crypto, &mut local);
+    let mut client_session = SecureStreamRead::new(crypto, &mut local);
 
     client_session.write_handshake(&public_key).expect("Client handshake failed");
 
-    SecureStream::read_handshake(&*local, &private_key).expect("Server handshake failed");
+    SecureStreamRead::read_handshake(&*local, &private_key).expect("Server handshake failed");
 }

@@ -6,7 +6,7 @@
 
 use std::io::{Cursor, Read, Write};
 use loco_protocol::secure::crypto::CryptoStore;
-use loco_protocol::secure::SecureStream;
+use loco_protocol::secure::SecureStreamRead;
 
 
 #[test]
@@ -14,7 +14,7 @@ pub fn secure_stream_read_write() {
     let mut local = Vec::<u8>::new();
 
     let crypto = CryptoStore::new();
-    let mut stream = SecureStream::new(crypto.clone(), Cursor::new(&mut local));
+    let mut stream = SecureStreamRead::new(crypto.clone(), Cursor::new(&mut local));
 
     let test_data = vec![1_u8, 2, 3, 4];
 
@@ -26,7 +26,7 @@ pub fn secure_stream_read_write() {
     let mut inner = stream.into_inner();
     inner.set_position(0);
 
-    let mut stream = SecureStream::new(crypto, inner);
+    let mut stream = SecureStreamRead::new(crypto, inner);
 
     let mut data = vec![0_u8; 4];
 

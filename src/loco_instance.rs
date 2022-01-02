@@ -23,7 +23,7 @@ struct LocoInstanceMutex<T> {
 struct LocoInstanceArc<R, W> {
 	mutex: Mutex<LocoInstanceMutex<W>>,
 	read: Mutex<R>,
-	broadcast_bson: broadcast::Sender<Arc<Result<Document, Error>>>,
+	broadcast_bson: broadcast::Sender<Arc<Result<(LocoHeader, Document), Error>>>,
 	stop: Mutex<bool>
 }
 
@@ -89,7 +89,7 @@ impl<R: AsyncRead + Unpin + Sync + Send + 'static, W: AsyncWrite + Unpin + Sync 
 							}
 							sender.send(result).map_err(|_| Error::TokioSendFail)?;
 						} else {
-							self.arc.broadcast_bson.send(Arc::new(result)).map_err(|_| Error::TokioSendFail)?;
+							self.arc.broadcast_bson.send(Arc::new(result.map(|x| (loco_header, x)))).map_err(|_| Error::TokioSendFail)?;
 						}
 					}
 					BodyType::Unknown => {}
@@ -124,7 +124,7 @@ impl<R: AsyncRead + Unpin + Sync + Send + 'static, W: AsyncWrite + Unpin + Sync 
 		*self.arc.stop.lock().await = true
 	}
 
-	pub fn subscribe_bson(&self) -> broadcast::Receiver<Arc<Result<Document, Error>>> {
+	pub fn subscribe_bson(&self) -> broadcast::Receiver<Arc<Result<(LocoHeader, Document), Error>>> {
 		self.arc.broadcast_bson.subscribe()
 	}
 
