@@ -191,7 +191,8 @@ impl<S: Write> SecureStreamWrite<S> {
 
 	pub fn write_handshake(&mut self, key: &RsaPublicKey) -> Result<(), Error> {
 		let handshake = to_handshake_packet(&self.crypto, key)?;
-		Ok(self.inner.write_all(&handshake)?)
+		self.inner.write_all(&handshake)?;
+		Ok(())
 	}
 }
 
@@ -225,7 +226,8 @@ impl<S: AsyncWrite + Unpin> SecureStreamWrite<S> {
 
 	pub async fn write_handshake_async(&mut self, key: &RsaPublicKey) -> Result<(), Error> {
 		let handshake = to_handshake_packet(&self.crypto, key)?;
-		Ok(self.inner.write_all(&handshake).await?)
+		self.inner.write_all(&handshake).await?;
+		Ok(())
 	}
 }
 

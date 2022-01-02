@@ -162,6 +162,7 @@ impl<R: AsyncRead + Unpin + Sync + Send + 'static, W: AsyncWrite + Unpin + Sync 
 		};
 		mutex.write.write_all(&bincode::serialize(&header)?).await?;
 		mutex.write.write_all(&body_raw).await?;
+		mutex.write.flush();
 		Ok(())
 	}
 }
