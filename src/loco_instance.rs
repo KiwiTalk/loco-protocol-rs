@@ -7,7 +7,6 @@ use futures::lock::Mutex;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::sync::{oneshot, broadcast};
-use tokio::task::JoinHandle;
 use std::time::Instant;
 use crate::{BodyType, EncodedMethod, Error, HEADER_SIZE, LocoHeader};
 use log::{error, warn, debug, info, trace};
@@ -43,7 +42,7 @@ pub trait LocoInstanceRead = AsyncRead + Unpin + Sync + Send + 'static;
 pub trait LocoInstanceWrite = AsyncWrite + Unpin + Sync + Send + 'static;
 
 impl<R: LocoInstanceRead, W: LocoInstanceWrite> LocoInstance<R, W> {
-	pub fn init(read: R, write: W) -> (Self, JoinHandle<()>) {
+	pub fn init(read: R, write: W) -> Self {
 		let instance = Self {
 			arc: Arc::new(LocoInstanceArc {
 				mutex: Mutex::new(LocoInstanceMutex {
@@ -56,21 +55,19 @@ impl<R: LocoInstanceRead, W: LocoInstanceWrite> LocoInstance<R, W> {
 				stop: Mutex::new(false)
 			})
 		};
-		let instance_clone = instance.clone();
-		let handle = tokio::spawn(async move {
-			instance_clone.run().await
-		});
-		(instance, handle)
+		instance
 	}
 
-	async fn run(&self) {
+	pub async fn run(&self) {
 		info!("LocoInstance started");
 		let mut to_remove = vec![];
 		while !*self.arc.stop.lock().await {
 			let result: Result<_, Error> = async {
 				let mut read = self.arc.read.lock().await;
 				let mut header_reader = [0; HEADER_SIZE];
+				println!("!");
 				read.read_exact(&mut header_reader).await?;
+				println!("!");
 				let loco_header: LocoHeader = bincode::deserialize_from(&header_reader as &[u8])?;
 				trace!("packet id: {}, method: {}", loco_header.id, TryInto::<String>::try_into(loco_header.method)?);
 				let mut body_raw = vec![0; loco_header.body_size as usize];
@@ -116,9 +113,11 @@ impl<R: LocoInstanceRead, W: LocoInstanceWrite> LocoInstance<R, W> {
 				}
 				Ok(())
 			}.await;
-			if let Err(e) = result {
-				error!("error on LocoInstance loop: {:#?}", e);
-			}
+			result.unwrap();
+			//if let Err(e) = result {
+			//	error!("error on LocoInstance loop: {:#?}", e);
+			//	e.prin
+			//}
 		}
 		info!("LocoInstance stopped");
 	}

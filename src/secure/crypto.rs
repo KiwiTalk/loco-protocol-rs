@@ -4,11 +4,11 @@
  * Copyright (c) storycraft. Licensed under the MIT Licence.
  */
 
-use std::cell::RefCell;
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use libaes::Cipher;
-use rand::{prelude::ThreadRng, rngs, RngCore};
+use rand::RngCore;
+use rand::rngs::OsRng;
 use rsa::{PaddingScheme, PublicKey, RsaPublicKey};
 use crate::secure::{SecureHandshake, SecureHandshakeHeader};
 use crate::Error;
@@ -37,20 +37,20 @@ pub enum CryptoError {
 #[derive(Clone, Debug)]
 pub struct CryptoStore {
     aes_key: [u8; 16],
-    rng: RefCell<ThreadRng>,
+    rng: OsRng,
 }
 
 impl CryptoStore {
     /// Create new crypto using cryptographically secure random key
     pub fn new() -> Self {
         let mut aes_key = [0_u8; 16];
-        let mut rng = rngs::ThreadRng::default();
+        let mut rng = OsRng::default();
 
         rng.fill_bytes(&mut aes_key);
 
         Self {
             aes_key,
-            rng: RefCell::new(rng),
+            rng,
         }
     }
 
@@ -58,7 +58,7 @@ impl CryptoStore {
     pub fn new_with_key(aes_key: [u8; 16]) -> Self {
         Self {
             aes_key,
-            rng: RefCell::new(rngs::ThreadRng::default()),
+            rng: OsRng::default(),
         }
     }
 
@@ -68,31 +68,31 @@ impl CryptoStore {
         Ok(cipher.cfb128_encrypt(iv, data))
     }
 
-    pub fn decrypt_aes(&self, data: &[u8], iv: &[u8; 16]) -> Result<Vec<u8>, CryptoError> {
+    pub fn decrypt_aes(&self, data: &[u8], iv: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let cipher = Cipher::new_128(&self.aes_key);
 
         Ok(cipher.cfb128_decrypt(iv, data))
     }
 
     /// Encrypt AES key using RSA public key
-    pub fn encrypt_key(&self, key: &RsaPublicKey) -> Result<Vec<u8>, CryptoError> {
+    pub fn encrypt_key(&mut self, key: &RsaPublicKey) -> Result<Vec<u8>, CryptoError> {
         Ok(key
             .encrypt(
-                (&mut self.rng.borrow_mut()) as &mut ThreadRng,
+                &mut self.rng,
                 PaddingScheme::new_oaep::<sha1::Sha1>(),
                 &self.aes_key,
             )
             .unwrap())
     }
 
-    pub fn gen_random(&self, data: &mut [u8]) {
-        self.rng.borrow_mut().fill_bytes(data);
+    pub fn gen_random(&mut self, data: &mut [u8]) {
+        self.rng.fill_bytes(data);
     }
 }
 
 
 pub(super) fn to_handshake_packet(
-    crypto: &CryptoStore,
+    crypto: &mut CryptoStore,
     key: &RsaPublicKey,
 ) -> Result<Vec<u8>, Error> {
     let encrypted_key = crypto.encrypt_key(key)?;

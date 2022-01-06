@@ -54,11 +54,9 @@ impl<S: Read> SecureStreamRead<S> {
 	/// Read one encrypted packet
 	fn read_data(&mut self) -> Result<(), Error> {
 		let data_size = self.inner.read_u32::<LittleEndian>()? as usize;
-		let mut iv = [0; SECURE_HEADER_SIZE];
-		self.inner.read_exact(&mut iv)?;
 		let mut data = vec![0; data_size];
 		self.inner.read_exact(&mut data)?;
-		self.read_buf = Cursor::new(self.crypto.decrypt_aes(&data, &iv)?);
+		self.read_buf = Cursor::new(self.crypto.decrypt_aes(&data[SECURE_HEADER_SIZE..], &data[..SECURE_HEADER_SIZE])?);
 		Ok(())
 	}
 
@@ -100,14 +98,14 @@ impl<S: Read> Read for SecureStreamRead<S> {
 impl<S: AsyncRead + Unpin> SecureStreamRead<S> {
 	/// Read one encrypted packet async
 	async fn read_data_async(&mut self) -> Result<(), Error> {
-		let mut data_size = [0; size_of::<u32>()];
+		println!("jjllkl");
+		let mut data_size = [0; 4];
 		self.inner.read_exact(&mut data_size).await?;
 		let data_size = (&data_size as &[u8]).read_u32::<LittleEndian>()? as usize;
-		let mut iv = [0; SECURE_HEADER_SIZE];
-		self.inner.read_exact(&mut iv).await?;
-		let mut read = vec![0; data_size];
-		self.inner.read_exact(&mut read).await?;
-		self.read_buf = Cursor::new(self.crypto.decrypt_aes(&read, &iv)?);
+		println!("data size: {}", data_size);
+		let mut data = vec![0; data_size];
+		self.inner.read_exact(&mut data).await?;
+		self.read_buf = Cursor::new(self.crypto.decrypt_aes(&data[SECURE_HEADER_SIZE..], &data[..SECURE_HEADER_SIZE])?);
 		Ok(())
 	}
 
@@ -144,10 +142,12 @@ impl<S: AsyncRead + Unpin> AsyncRead for SecureStreamRead<S> {
 	) -> Poll<io::Result<usize>> {
 		let read = ready!(
 			Box::pin(async {
-				while !self.read_buf.has_data_left()? {
+				while self.read_buf.is_empty() {
 					self.read_data_async().await.map_err(io_error_map)?
 				}
-				Ok(tokio::io::copy(&mut self.read_buf, &mut Cursor::new(buf)).await?)
+				let rs = Ok(tokio::io::copy(&mut self.read_buf, &mut Cursor::new(buf)).await?);
+				println!("aaaaaaa:{:#?}", rs);
+				rs
 			}).poll_unpin(cx).map_err(io_error_map)
 		)?;
 		Poll::Ready(Ok(read as usize))
@@ -181,7 +181,7 @@ impl<S: Write> SecureStreamWrite<S> {
 	/// Write data.
 	/// Returns size of packet written
 	fn write_data(&mut self, buf: &[u8]) -> Result<(), Error> {
-		self.inner.write_u32::<LittleEndian>(buf.len() as u32)?;
+		self.inner.write_u32::<LittleEndian>((buf.len() + SECURE_HEADER_SIZE) as u32)?;
 		let mut iv = [0_u8; SECURE_HEADER_SIZE];
 		self.crypto.gen_random(&mut iv);
 		self.inner.write_all(&iv)?;
@@ -190,7 +190,7 @@ impl<S: Write> SecureStreamWrite<S> {
 	}
 
 	pub fn write_handshake(&mut self, key: &RsaPublicKey) -> Result<(), Error> {
-		let handshake = to_handshake_packet(&self.crypto, key)?;
+		let handshake = to_handshake_packet(&mut self.crypto, key)?;
 		self.inner.write_all(&handshake)?;
 		Ok(())
 	}
@@ -211,11 +211,17 @@ impl<S: Write> Write for SecureStreamWrite<S> {
 
 
 impl<S: AsyncWrite + Unpin> SecureStreamWrite<S> {
+	pub async fn new_handshake(crypto: CryptoStore, stream: S, pubkey: &RsaPublicKey) -> Result<Self, Error> {
+		let mut s = Self::new(crypto, stream);
+		s.write_handshake_async(pubkey).await?;
+		s.flush().await?;
+		Ok(s)
+	}
 	/// Write data async.
 	/// Returns size of packet written
 	async fn write_data_async(&mut self, buf: &[u8]) -> Result<(), Error> {
 		let mut data_size = [0u8; size_of::<u32>()];
-		(&mut data_size as &mut [u8]).write_u32::<LittleEndian>(buf.len() as u32)?;
+		(&mut data_size as &mut [u8]).write_u32::<LittleEndian>((buf.len() + SECURE_HEADER_SIZE) as u32)?;
 		self.inner.write_all(&data_size).await?;
 		let mut iv = [0_u8; SECURE_HEADER_SIZE];
 		self.crypto.gen_random(&mut iv);
@@ -225,7 +231,7 @@ impl<S: AsyncWrite + Unpin> SecureStreamWrite<S> {
 	}
 
 	pub async fn write_handshake_async(&mut self, key: &RsaPublicKey) -> Result<(), Error> {
-		let handshake = to_handshake_packet(&self.crypto, key)?;
+		let handshake = to_handshake_packet(&mut self.crypto, key)?;
 		self.inner.write_all(&handshake).await?;
 		Ok(())
 	}

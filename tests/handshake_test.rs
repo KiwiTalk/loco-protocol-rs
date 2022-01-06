@@ -6,9 +6,9 @@
 
 use rand::rngs::OsRng;
 use rsa::{RsaPrivateKey, RsaPublicKey};
-use loco_protocol::secure::crypto::CryptoStore;
-use loco_protocol::secure::SecureStreamRead;
-
+use loco_protocol::secure::crypto::{CryptoStore, EncryptType, KeyEncryptType};
+use loco_protocol::secure::{SecureHandshakeHeader, SecureStreamRead};
+/*
 #[test]
 pub fn handshake() {
     let private_key = RsaPrivateKey::new(&mut OsRng, 1024).expect("failed to generate a key");
@@ -22,4 +22,14 @@ pub fn handshake() {
     client_session.write_handshake(&public_key).expect("Client handshake failed");
 
     SecureStreamRead::read_handshake(&*local, &private_key).expect("Server handshake failed");
+}
+*/
+#[test]
+pub fn handshake_header() {
+    let handshake_header = SecureHandshakeHeader {
+        key_encrypt_type: KeyEncryptType::RsaOaepSha1Mgf1Sha1,
+        encrypt_type: EncryptType::AesCfb128,
+    };
+    let header_data = bincode::serialize(&handshake_header).unwrap();
+    println!("{:?}", header_data)
 }
