@@ -113,11 +113,9 @@ impl<R: LocoInstanceRead, W: LocoInstanceWrite> LocoInstance<R, W> {
 				}
 				Ok(())
 			}.await;
-			result.unwrap();
-			//if let Err(e) = result {
-			//	error!("error on LocoInstance loop: {:#?}", e);
-			//	e.prin
-			//}
+			if let Err(e) = result {
+				error!("error on LocoInstance loop: {:#?}", e);
+			}
 		}
 		info!("LocoInstance stopped");
 	}

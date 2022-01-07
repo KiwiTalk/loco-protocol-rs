@@ -1,4 +1,4 @@
-#![feature(buf_read_has_data_left, trait_alias, cursor_remaining)]
+#![feature(buf_read_has_data_left, trait_alias, cursor_remaining, try_blocks)]
 /*
  * Created on Sat Nov 28 2020
  *

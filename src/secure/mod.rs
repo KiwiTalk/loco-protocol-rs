@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod crypto;
+pub mod blocking;
 
 mod secure_stream;
 
