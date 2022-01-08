@@ -62,24 +62,33 @@ impl<R: LocoInstanceRead, W: LocoInstanceWrite> LocoInstance<R, W> {
 		info!("LocoInstance started");
 		let mut to_remove = vec![];
 		while !*self.arc.stop.lock().await {
-			let result: Result<_, Error> = async {
-				let mut read = self.arc.read.lock().await;
-				let mut header_reader = [0; HEADER_SIZE];
-				println!("!");
-				read.read_exact(&mut header_reader).await?;
-				println!("!");
-				let loco_header: LocoHeader = bincode::deserialize_from(&header_reader as &[u8])?;
-				trace!("packet id: {}, method: {}", loco_header.id, TryInto::<String>::try_into(loco_header.method)?);
-				let mut body_raw = vec![0; loco_header.body_size as usize];
-				read.read_exact(&mut body_raw).await?;
+			let result: Result<_, Error> = try {
+				let (loco_header, body_raw) = tokio::select! {
+					result = async {
+						let mut read = self.arc.read.lock().await;
+						let mut header_reader = [0; HEADER_SIZE];
+						read.read_exact(&mut header_reader).await?;
+						let loco_header: LocoHeader = bincode::deserialize_from(&header_reader as &[u8])?;
+						trace!("packet id: {}, method: {}", loco_header.id, TryInto::<String>::try_into(loco_header.method)?);
+						let mut body_raw = vec![0; loco_header.body_size as usize];
+						read.read_exact(&mut body_raw).await?;
+						Result::<_, Error>::Ok((loco_header, body_raw))
+					} => result,
+					_ = async {
+						while !*self.arc.stop.lock().await {
+							tokio::time::sleep(Duration::from_secs(1)).await
+						}
+					} => break,
+				}?;
+
 				let mut mutex = self.arc.mutex.lock().await;
-				if (loco_header.id as u32) >= (mutex.last_packet_id as u32) {
+				if (loco_header.id as u32) > (mutex.last_packet_id as u32) {
 					mutex.last_packet_id = loco_header.id;
 				}
 				match loco_header.body_type {
 					BodyType::Bson => {
-						let result: Result<Document, Error> = {
-							Ok(bson::Document::from_reader(&*body_raw)?)
+						let result: Result<Document, Error> = try {
+							bson::Document::from_reader(&*body_raw)?
 						};
 						if let Some((_, method, sender)) = mutex.oneshot.remove(&loco_header.id) {
 							let method_expected: String = method.try_into()?;
@@ -93,7 +102,6 @@ impl<R: LocoInstanceRead, W: LocoInstanceWrite> LocoInstance<R, W> {
 							self.arc.broadcast_bson.send(Arc::new(result.map(|x| (method, x)))).map_err(|_| Error::TokioSendFail)?;
 						}
 					}
-					BodyType::Unknown => {}
 				}
 
 
@@ -111,10 +119,10 @@ impl<R: LocoInstanceRead, W: LocoInstanceWrite> LocoInstance<R, W> {
 						sender.send(Err(Error::LocoTimeout)).map_err(|_| Error::TokioSendFail)?;
 					}
 				}
-				Ok(())
-			}.await;
+			};
 			if let Err(e) = result {
 				error!("error on LocoInstance loop: {:#?}", e);
+				break;
 			}
 		}
 		info!("LocoInstance stopped");

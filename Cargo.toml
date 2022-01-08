@@ -1,5 +1,5 @@
 [package]
-name = "loco-protocol-r1"
+name = "loco-protocol"
 version = "4.1.0"
 authors = ["storycraft <storycraft@pancake.sh>"]
 license = "MIT"
@@ -26,7 +26,7 @@ rand = "0.8.4"
 getrandom = { version = "0.2.3", optional = true }
 sha-1 = "0.9.7"
 bytes = "1.1.0"
-tokio = { version = "1.15.0", features = ["io-util", "sync", "rt"] }
+tokio = { version = "1.15.0", features = ["io-util", "sync", "rt", "macros", "time"] }
 serde_repr = "0.1"
 bson = "2.1.0"
 thiserror = "1.0.30"

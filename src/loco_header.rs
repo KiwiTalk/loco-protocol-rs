@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use serde_repr::{Serialize_repr, Deserialize_repr};
 use crate::EncodedMethod;
 
 pub const HEADER_SIZE: usize = 22;
@@ -12,10 +13,9 @@ pub struct LocoHeader {
 	pub body_size: u32
 }
 
+
+#[derive(Serialize_repr, Deserialize_repr, Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(i8)]
-#[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Debug)]
 pub enum BodyType {
-	Bson = 0,
-	#[serde(other)]
-	Unknown = -1,
+	Bson = 0
 }
