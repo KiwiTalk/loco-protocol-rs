@@ -17,5 +17,6 @@ pub struct LocoHeader {
 #[derive(Serialize_repr, Deserialize_repr, Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(i8)]
 pub enum BodyType {
-	Bson = 0
+	Normal = 0,
+	Push = 8
 }
