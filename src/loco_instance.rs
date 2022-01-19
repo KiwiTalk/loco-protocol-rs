@@ -98,7 +98,7 @@ impl<R: LocoInstanceRead, W: LocoInstanceWrite> LocoInstance<R, W> {
 						sender.send(result).map_err(|_| Error::TokioSendFail)?;
 					} else {
 						let method: String = loco_header.method.try_into()?;
-						self.arc.broadcast_bson.send(Arc::new(result.map(|x| (method, x)))).map_err(|_| Error::TokioSendFail)?;
+						self.arc.broadcast_bson.send(Arc::new(result.map(|x| (method, x)))).ok();
 					}
 				}
 			}
@@ -115,7 +115,7 @@ impl<R: LocoInstanceRead, W: LocoInstanceWrite> LocoInstance<R, W> {
 			for x in &to_remove {
 				if let Some((_, method, sender)) = mutex.oneshot.remove(x) {
 					debug!("packet id: {}, method: {}, dropped due to timeout", x, TryInto::<String>::try_into(method)?);
-					sender.send(Err(Error::LocoTimeout.into())).map_err(|_| Error::TokioSendFail)?;
+					sender.send(Err(Error::LocoTimeout.into())).ok();
 				}
 			}
 		}
