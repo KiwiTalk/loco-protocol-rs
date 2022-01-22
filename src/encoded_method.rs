@@ -1,3 +1,4 @@
+use std::ffi::CString;
 use std::io::Write;
 use std::str::FromStr;
 use serde::{Serialize, Deserialize};
@@ -17,6 +18,7 @@ impl FromStr for EncodedMethod {
 impl TryInto<String> for EncodedMethod {
 	type Error = std::string::FromUtf8Error;
 	fn try_into(self) -> Result<String, Self::Error> {
-		String::from_utf8(self.0.to_vec())
+		let vec: Vec<u8> = self.0.split(|x| *x == 0).next().unwrap().to_vec();
+		Ok(String::from_utf8(vec)?)
 	}
 }

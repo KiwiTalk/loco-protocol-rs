@@ -59,6 +59,15 @@ impl<R: LocoInstanceRead, W: LocoInstanceWrite> LocoInstance<R, W> {
 	}
 
 	pub async fn run(&self) -> Result<(), Error> {
+		if let Err(e) = self._run().await {
+			self.stop().await;
+			Err(e)
+		} else {
+			Ok(())
+		}
+	}
+
+	async fn _run(&self) -> Result<(), Error> {
 		info!("LocoInstance started");
 		let mut to_remove = vec![];
 		while !*self.arc.stop.lock().await {
@@ -125,7 +134,11 @@ impl<R: LocoInstanceRead, W: LocoInstanceWrite> LocoInstance<R, W> {
 
 	pub async fn stop(&self) {
 		info!("LocoInstance stopping...");
-		*self.arc.stop.lock().await = true
+		*self.arc.stop.lock().await = true;
+		self.arc.broadcast_bson.send(Arc::new(Result::Err(Error::LocoInstanceStopped))).ok();
+		for (_, (_, _, x)) in self.arc.mutex.lock().await.oneshot.drain() {
+			x.send(Result::Err(Error::LocoInstanceStopped)).ok();
+		}
 	}
 
 	pub fn subscribe_bson(&self) -> broadcast::Receiver<Arc<Result<(String, Document), Error>>> {

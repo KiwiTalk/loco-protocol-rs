@@ -43,7 +43,9 @@ pub enum Error {
 	#[error("packet receive timed out")]
 	LocoTimeout,
 	#[error("error while deserializing EncodedMethod: {0}")]
-	EncodedMethodDeserializeError(#[from] FromUtf8Error)
+	EncodedMethodDeserializeError(#[from] FromUtf8Error),
+	#[error("loco instance stopped while receiving")]
+	LocoInstanceStopped
 }
 
 
